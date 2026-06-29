@@ -12,6 +12,7 @@
     "lint": "eslint src worker",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:api": "vitest run test/public-",
     "migrate": "tsx worker/migrate.ts",
     "seed": "tsx src/seed/index.ts",
     "worker": "tsx worker/index.ts",

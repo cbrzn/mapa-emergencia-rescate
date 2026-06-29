@@ -21,6 +21,47 @@ process.env.VALKEY_URL = process.env.VALKEY_URL ?? "redis://localhost:6379";
 process.env.RATE_LIMIT_DISABLED = "1";
 // Sin SMTP en test → invite devuelve el link, reset loguea el OTP (no se manda).
 
+/**
+ * Claves que NUNCA deben aparecer en un cuerpo de respuesta pública (contexto
+ * humanitario): la columna `photo` cruda (base64), el hash/IP del remitente, el
+ * user-agent y el correo. Las rutas exponen solo DTOs con allowlist (p.ej.
+ * `photoUrl` derivada en vez de `photo`). Complementa el issue #35 (redacción).
+ */
+const FORBIDDEN_PUBLIC_KEYS = [
+  "photo",
+  "ip_hash",
+  "ipHash",
+  "user_agent",
+  "userAgent",
+  "email",
+  "passwordHash",
+  "password_hash",
+] as const;
+
+/**
+ * Asierta que `value` (y todo objeto anidado) no expone ningún campo sensible.
+ * `allow` permite exceptuar claves legítimamente públicas en un contexto dado
+ * (p.ej. `contact` en una ficha de desaparecido, que sí es público por diseño).
+ */
+export function expectNoSensitiveFields(value: unknown, allow: string[] = []): void {
+  const forbidden = FORBIDDEN_PUBLIC_KEYS.filter((k) => !allow.includes(k));
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (node && typeof node === "object") {
+      for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
+        if (forbidden.includes(key as (typeof FORBIDDEN_PUBLIC_KEYS)[number])) {
+          throw new Error(`La respuesta pública filtró el campo sensible "${key}".`);
+        }
+        walk(child);
+      }
+    }
+  };
+  walk(value);
+}
+
 /** Token JWT para un userId (firma con el mismo JWT_SECRET de la app). */
 export async function tokenFor(userId: string): Promise<string> {
   const { signToken } = await import("@/auth/jwt");
