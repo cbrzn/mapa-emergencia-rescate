@@ -9,7 +9,7 @@
  * tocar IPs reales. Verifica que al superar el límite la ruta responde 429.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import "./helpers";
+import "../helpers";
 import request from "supertest";
 
 let app: import("express").Express;

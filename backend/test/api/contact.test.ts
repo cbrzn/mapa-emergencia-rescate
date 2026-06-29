@@ -7,8 +7,8 @@
  * GET de contacto: la respuesta de escritura es la única superficie pública.)
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import "./helpers";
-import { expectNoSensitiveFields } from "./helpers";
+import "../helpers";
+import { expectNoSensitiveFields } from "../helpers";
 import request from "supertest";
 
 let app: import("express").Express;

@@ -6,8 +6,8 @@
  * los devuelve: solo expone la allowlist {id, name, amountUsd, createdAt}.
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import "./helpers";
-import { expectNoSensitiveFields } from "./helpers";
+import "../helpers";
+import { expectNoSensitiveFields } from "../helpers";
 import request from "supertest";
 
 let app: import("express").Express;

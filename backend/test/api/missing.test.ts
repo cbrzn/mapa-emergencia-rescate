@@ -6,8 +6,8 @@
  * columna `photo`. `contact` SÍ es público por diseño en esta ficha.
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import "./helpers";
-import { SYNTHETIC_PNG_DATA_URL, expectNoSensitiveFields } from "./helpers";
+import "../helpers";
+import { SYNTHETIC_PNG_DATA_URL, expectNoSensitiveFields } from "../helpers";
 import request from "supertest";
 
 let app: import("express").Express;

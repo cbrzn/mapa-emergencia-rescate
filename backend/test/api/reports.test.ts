@@ -7,11 +7,11 @@
  *
  * Requiere el stack local (docker compose up) o los service containers del CI.
  * El rate-limit va deshabilitado aquí (helpers fija RATE_LIMIT_DISABLED=1); su
- * comportamiento se prueba aparte en public-rate-limit.test.ts.
+ * comportamiento se prueba aparte en test/api/rate-limit.test.ts.
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import "./helpers";
-import { SYNTHETIC_PNG_DATA_URL, expectNoSensitiveFields } from "./helpers";
+import "../helpers";
+import { SYNTHETIC_PNG_DATA_URL, expectNoSensitiveFields } from "../helpers";
 import request from "supertest";
 
 let app: import("express").Express;
