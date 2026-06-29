@@ -2,7 +2,8 @@
  * Integración HTTP de las rutas PÚBLICAS de reportes (/api/reports). Levanta la
  * app real con supertest (sin abrir puerto) contra el Postgres LOCAL. Solo datos
  * sintéticos. Verifica contrato, status codes, errores visibles, límites de
- * tamaño y que la respuesta no filtre la columna `photo` cruda (solo `photoUrl`).
+ * tamaño y —subiendo una foto REAL— que la respuesta no filtre la columna
+ * `photo` cruda (base64): solo se expone la URL derivada `photoUrl`.
  *
  * Requiere el stack local (docker compose up) o los service containers del CI.
  * El rate-limit va deshabilitado aquí (helpers fija RATE_LIMIT_DISABLED=1); su
@@ -10,7 +11,7 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import "./helpers";
-import { expectNoSensitiveFields } from "./helpers";
+import { SYNTHETIC_PNG_DATA_URL, expectNoSensitiveFields } from "./helpers";
 import request from "supertest";
 
 let app: import("express").Express;
@@ -19,8 +20,8 @@ beforeAll(async () => {
   app = (await import("@/server")).app;
 });
 
-// Marcador sintético sobre coordenadas demo (Caracas), sin foto ni datos reales.
-function syntheticReport() {
+// Marcador sintético sobre coordenadas demo (Caracas), sin datos reales.
+function syntheticReport(overrides: Record<string, unknown> = {}) {
   return {
     type: "critical",
     lat: 10.5,
@@ -28,23 +29,24 @@ function syntheticReport() {
     place: `Punto demo ${Math.trunc(performance.now())}`,
     affected: 3,
     needs: "Agua y alimentos (demo)",
+    ...overrides,
   };
 }
 
 describe("POST /api/reports", () => {
-  it("crea un reporte y devuelve 201 con el DTO (sin foto cruda)", async () => {
-    const res = await request(app).post("/api/reports").send(syntheticReport());
+  it("crea un reporte CON foto y devuelve photoUrl derivada, nunca el base64 crudo", async () => {
+    const res = await request(app)
+      .post("/api/reports")
+      .send(syntheticReport({ photo: SYNTHETIC_PNG_DATA_URL }));
     expect(res.status).toBe(201);
-    expect(res.body.report).toMatchObject({
-      type: "critical",
-      lat: 10.5,
-      lng: -66.9,
-      confirmations: 0,
-    });
-    expect(res.body.report.id).toBeTruthy();
-    // Allowlist: nunca exponemos la columna `photo`; solo `photoUrl` (aquí null).
+    expect(res.body.report).toMatchObject({ type: "critical", confirmations: 0 });
+    const id = res.body.report.id as string;
+    expect(id).toBeTruthy();
+    // La foto SÍ se subió → photoUrl apunta al endpoint, pero el base64 no se
+    // serializa: ni la clave `photo` ni el payload aparecen en la respuesta.
+    expect(res.body.report.photoUrl).toBe(`/api/reports/${id}/photo`);
     expect(res.body.report).not.toHaveProperty("photo");
-    expect(res.body.report.photoUrl).toBeNull();
+    expect(JSON.stringify(res.body)).not.toContain("base64");
     expectNoSensitiveFields(res.body);
   });
 
@@ -61,23 +63,40 @@ describe("POST /api/reports", () => {
     const huge = "x".repeat(1_400_001); // > MAX_REPORT_PHOTO_CHARS
     const res = await request(app)
       .post("/api/reports")
-      .send({ ...syntheticReport(), photo: huge });
+      .send(syntheticReport({ photo: huge }));
     expect([400, 413]).toContain(res.status);
     expect(typeof res.body.error).toBe("string");
   });
 });
 
 describe("GET /api/reports", () => {
-  it("lista DTOs sin cuerpos crudos ni fotos embebidas", async () => {
-    await request(app).post("/api/reports").send(syntheticReport());
+  it("lista DTOs con photoUrl pero sin la foto embebida en base64", async () => {
+    const created = await request(app)
+      .post("/api/reports")
+      .send(syntheticReport({ photo: SYNTHETIC_PNG_DATA_URL }));
+    const id = created.body.report.id as string;
+
     const res = await request(app).get("/api/reports");
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.reports)).toBe(true);
-    for (const r of res.body.reports) {
-      expect(r).not.toHaveProperty("photo");
-      expect(r).toHaveProperty("photoUrl"); // URL derivada o null
-    }
+    const mine = res.body.reports.find((r: { id: string }) => r.id === id);
+    expect(mine).toBeTruthy();
+    expect(mine.photoUrl).toBe(`/api/reports/${id}/photo`);
+    for (const r of res.body.reports) expect(r).not.toHaveProperty("photo");
+    expect(JSON.stringify(res.body)).not.toContain("base64");
     expectNoSensitiveFields(res.body);
+  });
+
+  it("sirve la foto subida como bytes por el endpoint dedicado (control positivo)", async () => {
+    const created = await request(app)
+      .post("/api/reports")
+      .send(syntheticReport({ photo: SYNTHETIC_PNG_DATA_URL }));
+    const id = created.body.report.id as string;
+
+    const res = await request(app).get(`/api/reports/${id}/photo`);
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("image/png");
+    expect(res.body.length).toBeGreaterThan(0); // bytes reales, no base64
   });
 });
 

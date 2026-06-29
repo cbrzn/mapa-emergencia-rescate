@@ -1,13 +1,13 @@
 /**
  * Integración HTTP de las rutas PÚBLICAS de personas desaparecidas
  * (/api/missing). Supertest contra el Postgres LOCAL, solo datos sintéticos.
- * Verifica contrato, paginación, el endpoint de mapa y que la ficha pública no
- * filtre la columna `photo` cruda (expone `photoUrl`). `contact` SÍ es público
- * por diseño en esta ficha, así que se exceptúa de la aserción de no-filtrado.
+ * Verifica contrato, paginación, el endpoint de mapa y —subiendo una foto
+ * REAL— que la ficha pública exponga `photoUrl` pero nunca el base64 de la
+ * columna `photo`. `contact` SÍ es público por diseño en esta ficha.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import "./helpers";
-import { expectNoSensitiveFields } from "./helpers";
+import { SYNTHETIC_PNG_DATA_URL, expectNoSensitiveFields } from "./helpers";
 import request from "supertest";
 
 let app: import("express").Express;
@@ -28,21 +28,23 @@ function syntheticPerson() {
     lastSeen: "Plaza demo, Caracas",
     contact: "demo@test.local",
     reportType: "missing" as const,
+    photo: SYNTHETIC_PNG_DATA_URL,
     _tag: tag,
   };
 }
 
 describe("POST /api/missing", () => {
-  it("crea un reporte y devuelve 201 con el DTO (sin foto cruda)", async () => {
+  it("crea CON foto y devuelve photoUrl derivada, nunca el base64 crudo", async () => {
     const person = syntheticPerson();
     const res = await request(app).post("/api/missing").send(person);
     expect(res.status).toBe(201);
     expect(res.body.person).toMatchObject({ name: person.name, status: "active" });
-    expect(res.body.person.id).toBeTruthy();
+    const id = res.body.person.id as string;
+    expect(id).toBeTruthy();
+    expect(res.body.person.photoUrl).toBe(`/api/missing/${id}/photo`);
     expect(res.body.person).not.toHaveProperty("photo");
-    expect(res.body.person).toHaveProperty("photoUrl");
-    // `contact` es público en la ficha; el resto de campos sensibles no.
-    expectNoSensitiveFields(res.body, ["email"]);
+    expect(JSON.stringify(res.body)).not.toContain("base64");
+    expectNoSensitiveFields(res.body, ["email"]); // `contact` puede contener un correo público
   });
 
   it("rechaza un reporte sin nombre con 400 y mensaje visible", async () => {
@@ -53,26 +55,37 @@ describe("POST /api/missing", () => {
 });
 
 describe("GET /api/missing", () => {
-  it("devuelve una página de DTOs y encuentra al recién creado por búsqueda", async () => {
+  it("devuelve DTOs (con photoUrl, sin base64) y encuentra al recién creado por búsqueda", async () => {
     const person = syntheticPerson();
-    await request(app).post("/api/missing").send(person);
+    const created = await request(app).post("/api/missing").send(person);
+    const id = created.body.person.id as string;
 
     const res = await request(app).get("/api/missing").query({ q: person._tag });
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.people)).toBe(true);
     expect(res.body).toMatchObject({ page: 1, persistent: true });
-    expect(typeof res.body.total).toBe("number");
 
-    const found = res.body.people.find((p: { name: string }) => p.name === person.name);
+    const found = res.body.people.find((p: { id: string }) => p.id === id);
     expect(found).toBeTruthy();
+    expect(found.photoUrl).toBe(`/api/missing/${id}/photo`);
     expect(found).not.toHaveProperty("photo");
-    for (const p of res.body.people) expect(p).toHaveProperty("photoUrl");
+    expect(JSON.stringify(res.body)).not.toContain("base64");
     expectNoSensitiveFields(res.body, ["email"]);
+  });
+
+  it("sirve la foto subida como bytes por el endpoint dedicado (control positivo)", async () => {
+    const created = await request(app).post("/api/missing").send(syntheticPerson());
+    const id = created.body.person.id as string;
+
+    const res = await request(app).get(`/api/missing/${id}/photo`);
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("image/png");
+    expect(res.body.length).toBeGreaterThan(0);
   });
 });
 
 describe("GET /api/missing/map", () => {
-  it("devuelve marcadores ligeros sin cuerpos crudos", async () => {
+  it("devuelve marcadores ligeros sin foto cruda ni contacto", async () => {
     const res = await request(app).get("/api/missing/map");
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.markers)).toBe(true);
@@ -80,6 +93,7 @@ describe("GET /api/missing/map", () => {
       expect(m).not.toHaveProperty("photo");
       expect(m).not.toHaveProperty("contact"); // el marcador del mapa ni siquiera lo trae
     }
+    expect(JSON.stringify(res.body)).not.toContain("base64");
     expectNoSensitiveFields(res.body);
   });
 });

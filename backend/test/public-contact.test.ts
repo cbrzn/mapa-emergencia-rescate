@@ -1,8 +1,10 @@
 /**
  * Integración HTTP del endpoint público de contacto (POST /api/contact).
- * Supertest contra el Postgres LOCAL, solo datos sintéticos. Verifica el
- * contrato { ok, id, message }, los errores visibles y que la respuesta NUNCA
- * devuelva el hash de IP que se persiste internamente.
+ * Supertest contra el Postgres LOCAL, solo datos sintéticos. El servidor
+ * persiste INTERNAMENTE el hash de IP del remitente; el test lo provoca
+ * (cf-connecting-ip + User-Agent) y verifica que la respuesta sea EXACTAMENTE
+ * { ok, id, message } — sin reflejar el correo, la IP ni el user-agent. (No hay
+ * GET de contacto: la respuesta de escritura es la única superficie pública.)
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import "./helpers";
@@ -25,18 +27,21 @@ function syntheticMessage() {
 }
 
 describe("POST /api/contact", () => {
-  it("acepta un mensaje válido y devuelve { ok, id, message } sin filtrar ip_hash", async () => {
-    const res = await request(app).post("/api/contact").send(syntheticMessage());
+  it("acepta un mensaje válido y devuelve solo { ok, id, message }", async () => {
+    const res = await request(app)
+      .post("/api/contact")
+      .set("User-Agent", "test-agent/1.0")
+      .set("cf-connecting-ip", "203.0.113.60")
+      .send(syntheticMessage());
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(res.body.id).toBeTruthy();
     expect(typeof res.body.message).toBe("string");
-    // El email del remitente es el que ÉL envió; lo relevante es no devolver el
-    // hash de IP ni el user-agent que se persisten en el servidor.
-    expect(res.body).not.toHaveProperty("ipHash");
-    expect(res.body).not.toHaveProperty("ip_hash");
-    expect(res.body).not.toHaveProperty("userAgent");
-    expectNoSensitiveFields(res.body, ["email"]);
+    // Allowlist estricta de salida: ni el correo enviado, ni la IP/UA persistidos.
+    expect(Object.keys(res.body).sort()).toEqual(["id", "message", "ok"]);
+    expect(JSON.stringify(res.body)).not.toContain("remitente@test.local");
+    expect(JSON.stringify(res.body)).not.toContain("test-agent");
+    expectNoSensitiveFields(res.body);
   });
 
   it("rechaza un correo inválido con 400 y mensaje visible", async () => {

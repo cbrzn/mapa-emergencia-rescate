@@ -1,8 +1,9 @@
 /**
  * Integración HTTP de las rutas públicas de donaciones (/api/donations).
- * Supertest contra el Postgres LOCAL, solo datos sintéticos. Verifica el POST
- * (registro de intención → { id, paypalUrl }), el GET (stats + recientes) y que
- * las donaciones recientes NUNCA expongan ip_hash / user_agent.
+ * Supertest contra el Postgres LOCAL, solo datos sintéticos. El POST persiste
+ * INTERNAMENTE el hash de IP y el user-agent; el test los provoca (mandando
+ * cf-connecting-ip + User-Agent) y luego verifica que el GET de recientes NUNCA
+ * los devuelve: solo expone la allowlist {id, name, amountUsd, createdAt}.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import "./helpers";
@@ -15,16 +16,15 @@ beforeAll(async () => {
   app = (await import("@/server")).app;
 });
 
-function syntheticDonation() {
-  return { name: "Donante Demo", amountCents: 1000 }; // USD 10 (sintético)
-}
-
 describe("POST /api/donations", () => {
   it("registra la intención y devuelve { id, paypalUrl }", async () => {
-    const res = await request(app).post("/api/donations").send(syntheticDonation());
+    const res = await request(app)
+      .post("/api/donations")
+      .set("User-Agent", "test-agent/1.0")
+      .set("cf-connecting-ip", "203.0.113.50")
+      .send({ name: "Donante Demo", amountCents: 1000 });
     expect(res.status).toBe(200);
     expect(res.body.id).toBeTruthy();
-    expect(typeof res.body.paypalUrl).toBe("string");
     expect(res.body.paypalUrl).toMatch(/^https:\/\//);
     expectNoSensitiveFields(res.body);
   });
@@ -40,17 +40,31 @@ describe("POST /api/donations", () => {
 });
 
 describe("GET /api/donations", () => {
-  it("devuelve stats + recientes sin filtrar datos sensibles", async () => {
-    await request(app).post("/api/donations").send(syntheticDonation());
+  it("expone solo la allowlist en recientes, aunque ip_hash/user_agent estén en la fila", async () => {
+    // Nombre único para reencontrar ESTA donación en el listado de recientes.
+    const name = `Donante ${Math.trunc(performance.now())}`;
+    await request(app)
+      .post("/api/donations")
+      .set("User-Agent", "test-agent/1.0")
+      .set("cf-connecting-ip", "203.0.113.51")
+      .send({ name, amountCents: 2500 });
+
     const res = await request(app).get("/api/donations");
     expect(res.status).toBe(200);
     expect(res.body.stats).toBeTruthy();
     expect(Array.isArray(res.body.recent)).toBe(true);
+
+    const mine = res.body.recent.find((d: { name: string }) => d.name === name);
+    expect(mine).toBeTruthy();
+    // La fila persistida TIENE ip_hash + user_agent; el DTO público no.
+    expect(Object.keys(mine).sort()).toEqual(["amountUsd", "createdAt", "id", "name"]);
     for (const d of res.body.recent) {
       expect(d).not.toHaveProperty("ipHash");
       expect(d).not.toHaveProperty("ip_hash");
       expect(d).not.toHaveProperty("userAgent");
+      expect(d).not.toHaveProperty("user_agent");
     }
+    expect(JSON.stringify(res.body)).not.toContain("test-agent");
     expectNoSensitiveFields(res.body);
   });
 });

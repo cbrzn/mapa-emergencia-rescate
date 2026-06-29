@@ -22,6 +22,15 @@ process.env.RATE_LIMIT_DISABLED = "1";
 // Sin SMTP en test → invite devuelve el link, reset loguea el OTP (no se manda).
 
 /**
+ * PNG transparente de 1x1 como data-URL — imagen SINTÉTICA válida (pasa la
+ * allowlist jpeg/png/webp de lib/image.ts). Sirve para subir una foto REAL en
+ * los tests y luego verificar que la respuesta pública expone solo `photoUrl`,
+ * nunca la columna `photo` cruda (base64).
+ */
+export const SYNTHETIC_PNG_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+/**
  * Claves que NUNCA deben aparecer en un cuerpo de respuesta pública (contexto
  * humanitario): la columna `photo` cruda (base64), el hash/IP del remitente, el
  * user-agent y el correo. Las rutas exponen solo DTOs con allowlist (p.ej.
