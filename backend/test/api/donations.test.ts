@@ -57,7 +57,7 @@ describe("GET /api/donations", () => {
     const mine = res.body.recent.find((d: { name: string }) => d.name === name);
     expect(mine).toBeTruthy();
     // La fila persistida TIENE ip_hash + user_agent; el DTO público no.
-    expect(Object.keys(mine).sort()).toEqual(["amountUsd", "createdAt", "id", "name"]);
+    expect(Object.keys(mine).sort()).toEqual(["amountCents", "createdAt", "id", "name"]);
     for (const d of res.body.recent) {
       expect(d).not.toHaveProperty("ipHash");
       expect(d).not.toHaveProperty("ip_hash");
